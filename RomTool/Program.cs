@@ -21,6 +21,12 @@ public class Program {
     };
 
     public static void Main(string[] args) {
+        ExtractSoundsFromRoms("de_new", 6);
+        ExtractSoundsFromRoms("de_old", 6);
+        ExtractSoundsFromRoms("es", 8);
+    }
+
+    public static void ExtractSoundsFromRoms(string romFolder, int romCount) {
         // For now, roms are stored in a folder called "de" in the same directory as the executable
         // normally, there is one card consisting of 6 roms, but there can be more
         // the roms are named 1.bin, 2.bin, 3.bin, 4.bin, 5.bin, 6.bin
@@ -30,11 +36,21 @@ public class Program {
         /* The first EPROM (Speech 1) of the primary speech board holds a lookup table in the first 64 bytes (0x40). This means that the first sound sample starts at offset 0x40 (actually at address 0x4040 as the EPROM starts at 0x4000). The table has 20 entries of 3 bytes each, and is 0xFF terminated. Only the first 13 entries of the table are used. The rest is reserved for 'future expansion' and is filled with 0xFF. The first two bytes of each entry contain a pointer to the start of the sample (i.e. the start address) in LSB/MSB order. For example: address [0x4AF8] is stored as [0xF8] [0x4A].
         The third byte contains the flags for that entry. The upper nibble of the flags specifies the board that holds the sample. Only bits 6 and 7 of the upper nibble are used. Of the lower nibble, bits 0-2 specify the audio level in the range 0-7 [3]. The remainings bits (3-5) are unused (all 0). */
 
+        bool isBoard2 = romCount > 6;
+
         // read the roms into memory
         var roms = new List<byte[]>();
         for (int i = 1; i <= 6; i++) {
-            var rom = File.ReadAllBytes($"de/{i}.bin");
+            var rom = File.ReadAllBytes($"{romFolder}/{i}.bin");
             roms.Add(rom);
+        }
+
+        var roms_board2 = new List<byte[]>();
+        if (isBoard2) {
+            for (int i = 7; i <= romCount; i++) {
+                var rom = File.ReadAllBytes($"{romFolder}/{i}.bin");
+                roms_board2.Add(rom);
+            }
         }
 
         // create a byte array to hold the entire rom, with offset 0x4000
@@ -42,10 +58,20 @@ public class Program {
         var romData = new byte[romSize];
         var offset = 0x4000;
 
+        var romSize_board2 = 0x4000 + roms_board2.Sum(r => r.Length);
+        var romData_board2 = new byte[romSize_board2];
+        var offset_board2 = 0x4000;
+
         // copy the roms into the romData array
         foreach (var rom in roms) {
             Array.Copy(rom, 0, romData, offset, rom.Length);
             offset += rom.Length;
+        }
+
+        // copy the roms into the romData_board2 array for the second board
+        foreach (var rom in roms_board2) {
+            Array.Copy(rom, 0, romData_board2, offset_board2, rom.Length);
+            offset_board2 += rom.Length;
         }
 
         // access the first 0x40 bytes of the rom (offset 0x4000 to 0x403F) and parse the header
@@ -72,9 +98,36 @@ public class Program {
 
             // read the sound data into a list
             var soundData = new List<byte>();
-            while (address < headerEntries[i + 1].Address) {
-                soundData.Add(romData[address]);
-                address++;
+
+            if (headerEntries[i].Board == Board.Board1)
+            {
+                while (address < headerEntries[i + 1].Address)
+                {
+                    soundData.Add(romData[address]);
+                    address++;
+                }
+            } else if (headerEntries[i].Board == Board.Both)
+            {
+                while (address < romData.Length - 1)
+                {
+                    soundData.Add(romData[address]);
+                    address++;
+                }
+
+                address = 0x4000;
+
+                while (address < headerEntries[i + 1].Address)
+                {
+                    soundData.Add(romData_board2[address]);
+                    address++;
+                }
+            } else if (headerEntries[i].Board == Board.Board2)
+            {
+                while (address < headerEntries[i + 1].Address)
+                {
+                    soundData.Add(romData_board2[address]);
+                    address++;
+                }
             }
 
 
@@ -93,9 +146,10 @@ public class Program {
 
             // create a folder called "sounds" in the same directory as the executable (if it doesn't exist)
             Directory.CreateDirectory("sounds");
+            Directory.CreateDirectory($"sounds/{romFolder}");
 
             // save the wav file
-            File.WriteAllBytes($"sounds/{WavNames[i]}.wav", wav.ToArray());
+            File.WriteAllBytes($"sounds/{romFolder}/{WavNames[i]}.wav", wav.ToArray());
         }
     }
 }
