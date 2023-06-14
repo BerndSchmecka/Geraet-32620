@@ -3,4 +3,6 @@ obj/
 .DS_Store
 .vscode/
 sounds/
-de/
+de_new/
+de_old/
+es/
